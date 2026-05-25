@@ -624,11 +624,6 @@
       text-align: center;
     }
 
-    .exclude-table-wrap table th:first-child,
-    .exclude-table-wrap table td:first-child {
-      width: 58px;
-    }
-
     .exclude-pager {
       align-items: center;
       display: flex;
@@ -1693,14 +1688,13 @@
           <div class="goods-list-head">
             <h4 class="goods-list-title">商品列表</h4>
             <div class="manual-actions">
-              <span id="manual-selected-count">已选 0 条</span>
-              <button class="primary" id="open-manual-submit-button" disabled>手动提报</button>
+              <button class="primary" id="open-manual-submit-button" disabled>一键提报</button>
               <button class="manual-record-link" id="open-manual-records-button">查看手动提报记录</button>
             </div>
           </div>
           <div class="exclude-table-wrap">
             <table>
-              <thead><tr><th><input type="checkbox" id="select-all-excluded"></th><th>商品ID</th><th>活动ID</th><th>添加时间</th><th>操作</th></tr></thead>
+              <thead><tr><th>商品ID</th><th>活动ID</th><th>添加时间</th><th>操作</th></tr></thead>
               <tbody id="excluded-table-body"></tbody>
             </table>
           </div>
@@ -1810,7 +1804,7 @@
         <button class="icon-button" data-close-manual-submit aria-label="关闭">×</button>
       </header>
       <div class="modal-body">
-        <div class="manual-summary" id="manual-submit-summary">将对已选择的 0 条不提报数据发起手动提报。</div>
+        <div class="manual-summary" id="manual-submit-summary">将对商品列表中的 0 条不提报数据发起手动提报。</div>
         <div class="form-section">
           <div class="required-label"><span>*</span>服务费分成比例</div>
           <div class="radio-row product-radio-row">
@@ -1906,7 +1900,6 @@
     let enableOnSave = false;
     let excludedGoods = [];
     let excludeType = "activityGoods";
-    let selectedExcludedIds = [];
     let manualSubmitRecords = [];
     let excludedPage = 1;
     const EXCLUDED_PAGE_SIZE = 10;
@@ -2036,19 +2029,8 @@
       });
     }
 
-    function getSelectedExcludedRows() {
-      const selectedIdSet = new Set(selectedExcludedIds);
-      return excludedGoods.filter((row) => selectedIdSet.has(row.id));
-    }
-
     function renderManualSelectionState(filteredRows) {
-      const selectedCount = selectedExcludedIds.length;
-      const filteredIds = filteredRows.map((row) => row.id);
-      const selectedFilteredCount = filteredIds.filter((id) => selectedExcludedIds.includes(id)).length;
-      $("#manual-selected-count").textContent = `已选 ${selectedCount} 条`;
-      $("#open-manual-submit-button").disabled = selectedCount === 0;
-      $("#select-all-excluded").checked = filteredRows.length > 0 && selectedFilteredCount === filteredRows.length;
-      $("#select-all-excluded").indeterminate = selectedFilteredCount > 0 && selectedFilteredCount < filteredRows.length;
+      $("#open-manual-submit-button").disabled = filteredRows.length === 0;
     }
 
     function renderExcludedPager(filteredRows) {
@@ -2073,10 +2055,8 @@
       $("#excluded-empty").hidden = excludedGoods.length > 0;
       $("#excluded-empty span:last-child").textContent = "暂无内容";
       $("#excluded-table-body").innerHTML = pageRows.map((row) => {
-        const checked = selectedExcludedIds.includes(row.id) ? "checked" : "";
         return `
           <tr>
-            <td><input type="checkbox" data-select-excluded="${row.id}" ${checked}></td>
             <td>${row.goodsId || "-"}</td>
             <td>${row.activityId || "-"}</td>
             <td>${row.createdAt}</td>
@@ -2084,7 +2064,7 @@
           </tr>
         `;
       }).join("");
-      renderManualSelectionState(pageRows);
+      renderManualSelectionState(filteredRows);
       renderExcludedPager(filteredRows);
     }
 
@@ -2214,9 +2194,9 @@
     }
 
     function openManualSubmitModal() {
-      const selectedRows = getSelectedExcludedRows();
-      if (selectedRows.length === 0) return;
-      $("#manual-submit-summary").textContent = `将对已选择的 ${selectedRows.length} 条不提报数据发起手动提报。列表中的按商品、按活动、按活动+商品排除数据均支持手动提报。`;
+      const targetRows = getFilteredExcludedRows();
+      if (targetRows.length === 0) return;
+      $("#manual-submit-summary").textContent = `将对商品列表中的 ${targetRows.length} 条不提报数据发起手动提报。列表中的按商品、按活动、按活动+商品排除数据均支持手动提报。`;
       $("#manual-contact").value = "18618267721";
       $("#manual-self-rate").value = "20";
       $$("#manual-ratio-segment button").forEach((button) => button.classList.toggle("active", button.dataset.manualRatio === "2:8"));
@@ -2251,12 +2231,12 @@
       const isCustom = $("input[name='manualRatioMode'][value='custom']").checked;
       const ratio = isCustom ? getManualCustomRatio() : $("#manual-ratio-segment button.active")?.dataset.manualRatio;
       const contact = $("#manual-contact").value.trim();
-      $("#confirm-manual-submit-button").disabled = !ratio || !contact || selectedExcludedIds.length === 0;
+      $("#confirm-manual-submit-button").disabled = !ratio || !contact || getFilteredExcludedRows().length === 0;
     }
 
     function confirmManualSubmit() {
-      const selectedRows = getSelectedExcludedRows();
-      if (selectedRows.length === 0) return;
+      const targetRows = getFilteredExcludedRows();
+      if (targetRows.length === 0) return;
       const isCustom = $("input[name='manualRatioMode'][value='custom']").checked;
       const ratio = isCustom ? getManualCustomRatio() : $("#manual-ratio-segment button.active")?.dataset.manualRatio;
       const contact = $("#manual-contact").value.trim();
@@ -2265,17 +2245,16 @@
         {
           id: Date.now(),
           submitTime: new Date().toLocaleString(),
-          targetCount: selectedRows.length,
-          successCount: selectedRows.length,
+          targetCount: targetRows.length,
+          successCount: targetRows.length,
           failedCount: 0,
           ratio,
           contact,
           status: "已完成",
-          rows: selectedRows
+          rows: targetRows
         },
         ...manualSubmitRecords
       ];
-      selectedExcludedIds = [];
       $("#manual-submit-modal").classList.remove("open");
       renderExcludedRows();
       renderManualRecords();
@@ -2329,7 +2308,6 @@
         if (target.matches("[data-delete-excluded]")) { deleteTargetId = Number(target.dataset.deleteExcluded); $("#delete-modal").classList.add("open"); }
         if (target.matches("#confirm-delete-button")) {
           excludedGoods = excludedGoods.filter((row) => row.id !== deleteTargetId);
-          selectedExcludedIds = selectedExcludedIds.filter((id) => id !== deleteTargetId);
           $("#delete-modal").classList.remove("open");
           renderExcludedRows();
           renderPlanTables();
@@ -2411,24 +2389,6 @@
         }
         if (target.matches("input[name='manualRatioMode']")) {
           setManualRatioMode(target.value);
-        }
-        if (target.matches("#select-all-excluded")) {
-          const filteredIds = getFilteredExcludedRows().map((row) => row.id);
-          if (target.checked) {
-            selectedExcludedIds = Array.from(new Set([...selectedExcludedIds, ...filteredIds]));
-          } else {
-            selectedExcludedIds = selectedExcludedIds.filter((id) => !filteredIds.includes(id));
-          }
-          renderExcludedRows();
-        }
-        if (target.matches("[data-select-excluded]")) {
-          const id = Number(target.dataset.selectExcluded);
-          if (target.checked) {
-            selectedExcludedIds = Array.from(new Set([...selectedExcludedIds, id]));
-          } else {
-            selectedExcludedIds = selectedExcludedIds.filter((item) => item !== id);
-          }
-          renderExcludedRows();
         }
         if (target.matches("#batch-file")) {
           const file = target.files[0];
